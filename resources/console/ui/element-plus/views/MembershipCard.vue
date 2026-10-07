@@ -212,14 +212,14 @@ import {
   type UploadRequestOptions,
 } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
-import ProTable from '@/components/common/ProTable/ProTable.vue'
+import ProTable from '@multi-tenant-saas/console/components/common/ProTable/ProTable.vue'
 import type {
   ColumnConfig,
   SearchConfig,
   ActionConfig,
   RequestParams,
   RequestResult,
-} from '@/components/common/ProTable/ProTable.vue'
+} from '@multi-tenant-saas/console/components/common/ProTable/ProTable.vue'
 import {
   getMembershipCardList,
   getMembershipCardDetail,

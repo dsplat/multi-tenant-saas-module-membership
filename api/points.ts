@@ -1,4 +1,4 @@
-import { http, extractListResult, tradeApiPrefix } from '@/shared/http'
+import { http, extractListResult, moduleApiPrefix } from '@multi-tenant-saas/console/shared/http'
 
 // 后端 points_rules 原始结构：主键 points_rule_id，trigger_type 枚举，status 字符串枚举
 interface RawPointsRule {
@@ -117,18 +117,18 @@ export interface UpdatePointsRuleData {
 export async function getPointsRuleList(
   params: PointsRuleListParams,
 ): Promise<PointsRuleListResult> {
-  const res = await http.get<any>(`${tradeApiPrefix()}/points-rules`, { params })
+  const res = await http.get<any>(`${moduleApiPrefix('membership')}/points-rules`, { params })
   const { data, total } = extractListResult<RawPointsRule>(res)
   return { data: data.map(normalizePointsRule), total }
 }
 
 export async function getPointsRuleDetail(id: number) {
-  const res = await http.get<RawPointsRule>(`${tradeApiPrefix()}/points-rules/${id}`)
+  const res = await http.get<RawPointsRule>(`${moduleApiPrefix('membership')}/points-rules/${id}`)
   return res.data
 }
 
 export async function createPointsRule(data: CreatePointsRuleData) {
-  const res = await http.post(`${tradeApiPrefix()}/points-rules`, toPointsBackendPayload(data))
+  const res = await http.post(`${moduleApiPrefix('membership')}/points-rules`, toPointsBackendPayload(data))
   return res.data
 }
 
@@ -138,21 +138,21 @@ export async function updatePointsRule(id: number, data: UpdatePointsRuleData) {
   if (data.scene !== undefined) payload.trigger_type = data.scene
   if (data.points !== undefined) payload.points = data.points
   if (data.status !== undefined) payload.status = data.status === 1 ? 'active' : 'inactive'
-  const res = await http.put(`${tradeApiPrefix()}/points-rules/${id}`, payload)
+  const res = await http.put(`${moduleApiPrefix('membership')}/points-rules/${id}`, payload)
   return res.data
 }
 
 export async function deletePointsRule(id: number) {
-  const res = await http.delete(`${tradeApiPrefix()}/points-rules/${id}`)
+  const res = await http.delete(`${moduleApiPrefix('membership')}/points-rules/${id}`)
   return res.data
 }
 
 export async function togglePointsRule(id: number, status: number) {
-  const res = await http.patch(`${tradeApiPrefix()}/points-rules/${id}/toggle`, { status })
+  const res = await http.patch(`${moduleApiPrefix('membership')}/points-rules/${id}/toggle`, { status })
   return res.data
 }
 
 export async function getPointsLogList(params: PointsLogListParams): Promise<PointsLogListResult> {
-  const res = await http.get<any>(`${tradeApiPrefix()}/points-logs`, { params })
+  const res = await http.get<any>(`${moduleApiPrefix('membership')}/points-logs`, { params })
   return extractListResult(res)
 }

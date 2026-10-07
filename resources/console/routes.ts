@@ -1,5 +1,5 @@
 import type { RouteRecordRaw } from 'vue-router'
-import { view } from '@/module-loader'
+import { view } from '@multi-tenant-saas/console/module-loader'
 
 const routes: RouteRecordRaw[] = [
   // 会员等级

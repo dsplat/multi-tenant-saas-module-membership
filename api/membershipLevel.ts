@@ -1,4 +1,4 @@
-import { http, extractListResult, tradeApiPrefix } from '@/shared/http'
+import { http, extractListResult, moduleApiPrefix } from '@multi-tenant-saas/console/shared/http'
 
 // 后端 membership_levels 原始结构：主键 membership_level_id，sort_order，status 字符串枚举
 interface RawMembershipLevel {
@@ -69,32 +69,32 @@ export interface MembershipLevelListResult {
 export async function getMembershipLevelList(
   params: MembershipLevelListParams,
 ): Promise<MembershipLevelListResult> {
-  const res = await http.get<any>(`${tradeApiPrefix()}/membership-levels`, { params })
+  const res = await http.get<any>(`${moduleApiPrefix('membership')}/membership-levels`, { params })
   const { data, total } = extractListResult<RawMembershipLevel>(res)
   return { data: data.map(normalizeMembershipLevel), total }
 }
 
 export async function createMembershipLevel(data: Partial<MembershipLevel>) {
-  const res = await http.post(`${tradeApiPrefix()}/membership-levels`, toBackendPayload(data))
+  const res = await http.post(`${moduleApiPrefix('membership')}/membership-levels`, toBackendPayload(data))
   return res.data
 }
 
 export async function updateMembershipLevel(id: number, data: Partial<MembershipLevel>) {
-  const res = await http.put(`${tradeApiPrefix()}/membership-levels/${id}`, toBackendPayload(data))
+  const res = await http.put(`${moduleApiPrefix('membership')}/membership-levels/${id}`, toBackendPayload(data))
   return res.data
 }
 
 export async function deleteMembershipLevel(id: number) {
-  const res = await http.delete(`${tradeApiPrefix()}/membership-levels/${id}`)
+  const res = await http.delete(`${moduleApiPrefix('membership')}/membership-levels/${id}`)
   return res.data
 }
 
 export async function getMembershipLevelBenefits(id: number) {
-  const res = await http.get<any>(`${tradeApiPrefix()}/membership-levels/${id}/benefits`)
+  const res = await http.get<any>(`${moduleApiPrefix('membership')}/membership-levels/${id}/benefits`)
   return res.data
 }
 
 export async function updateMembershipLevelBenefits(id: number, data: Record<string, any>) {
-  const res = await http.put(`${tradeApiPrefix()}/membership-levels/${id}/benefits`, data)
+  const res = await http.put(`${moduleApiPrefix('membership')}/membership-levels/${id}/benefits`, data)
   return res.data
 }

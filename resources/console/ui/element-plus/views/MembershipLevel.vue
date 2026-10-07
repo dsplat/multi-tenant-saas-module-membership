@@ -65,14 +65,14 @@
 <script setup lang="ts">
 import { ref, h, reactive } from 'vue'
 import { ElMessage, ElMessageBox, ElTag, type FormInstance, type FormRules } from 'element-plus'
-import ProTable from '@/components/common/ProTable/ProTable.vue'
+import ProTable from '@multi-tenant-saas/console/components/common/ProTable/ProTable.vue'
 import type {
   ColumnConfig,
   SearchConfig,
   ActionConfig,
   RequestParams,
   RequestResult,
-} from '@/components/common/ProTable/ProTable.vue'
+} from '@multi-tenant-saas/console/components/common/ProTable/ProTable.vue'
 import {
   getMembershipLevelList,
   createMembershipLevel,

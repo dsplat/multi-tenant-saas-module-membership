@@ -10,7 +10,7 @@
   },
   "require": {
     "php": "^8.3",
-    "dsplat/multi-tenant-saas": "^1.0 || ^2.0"
+    "dsplat/multi-tenant-saas": "^1.0 || ^2.0 || ^3.0"
   },
   "extra": {
     "saas": {
@@ -18,7 +18,7 @@
       "priority": 300,
       "dependencies": [],
       "conflicts": [],
-      "requires_core": ">=1.0.0",
+      "requires_core": ">=1.0.0 <4.0.0",
       "provider": "MultiTenantSaas\\Modules\\Membership\\MembershipServiceProvider",
       "tenant_toggleable": true,
       "module_loadable": true,

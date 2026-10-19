@@ -10,11 +10,14 @@ use MultiTenantSaas\Context\ExecutionIdentity;
 use MultiTenantSaas\Contracts\AuthorizationCapabilityRegistryContract;
 use MultiTenantSaas\Contracts\CapabilityRequirementResolverContract;
 use MultiTenantSaas\Contracts\ToolRegistryContract;
+use MultiTenantSaas\Contracts\WriteAdapterRegistryContract;
+use MultiTenantSaas\Modules\Ai\Services\Agent\Dto\Tool;
 use MultiTenantSaas\Modules\Contracts\ModuleServiceProvider;
 use MultiTenantSaas\Modules\Membership\Services\Tools\AdjustPointsHandler;
 use MultiTenantSaas\Modules\Membership\Services\Tools\EvaluateMembershipHandler;
 use MultiTenantSaas\Modules\Membership\Services\Tools\GetPointsBalanceHandler;
 use MultiTenantSaas\Modules\Membership\Services\Tools\ListMembershipLevelsHandler;
+use MultiTenantSaas\Modules\Membership\Services\Write\MembershipAdjustPointsWriteAdapter;
 use MultiTenantSaas\Support\OptionalModule;
 
 /**
@@ -45,6 +48,7 @@ class MembershipServiceProvider extends ModuleServiceProvider
     protected function bootModule(): void
     {
         $this->registerAuthorizationCapabilities();
+        $this->registerWriteAdapters();
         $this->registerTools();
     }
 
@@ -52,7 +56,10 @@ class MembershipServiceProvider extends ModuleServiceProvider
      * P1 工具标注 wave2：Membership 只读能力。
      *
      * operator requirement 映射到既有权限名 `membership.view`（会员体系读端点同口径）。
-     * L2 写工具（调整积分）暂不标注（需 writeAdapter，另行迁移）。
+     *
+     * B2 写能力（调整积分）映射到既有权限名 `membership.manage`，与
+     * `POST points/adjust/{userId}` 路由及 Console 写面同口径（避免同一操作
+     * 在 Web 与 AI 两条路径要求不同权限）。
      */
     private function registerAuthorizationCapabilities(): void
     {
@@ -69,6 +76,7 @@ class MembershipServiceProvider extends ModuleServiceProvider
             'common.membership.levels' => 'membership.view',
             'common.membership.evaluate' => 'membership.view',
             'common.membership.points_balance' => 'membership.view',
+            'common.membership.adjust_points' => 'membership.manage',
         ];
 
         foreach ($capabilities as $key => $permission) {
@@ -81,6 +89,31 @@ class MembershipServiceProvider extends ModuleServiceProvider
 
             $requirements?->register($key, ExecutionIdentity::TYPE_OPERATOR, ['permission' => $permission]);
         }
+    }
+
+    /**
+     * B2 写试点：调整积分走显式注册的写授权适配器（ADR v2.5 §8.7）。
+     *
+     * 未注册/未声明 adapter 的写工具一律 write_unsupported，禁止回退旧 handler。
+     */
+    private function registerWriteAdapters(): void
+    {
+        if (! $this->app->bound(WriteAdapterRegistryContract::class)) {
+            return;
+        }
+
+        $registry = $this->app->make(WriteAdapterRegistryContract::class);
+
+        if ($registry->get(MembershipAdjustPointsWriteAdapter::ADAPTER_KEY) !== null) {
+            return;
+        }
+
+        $this->app->singleton(MembershipAdjustPointsWriteAdapter::class);
+
+        $registry->register(
+            MembershipAdjustPointsWriteAdapter::ADAPTER_KEY,
+            $this->app->make(MembershipAdjustPointsWriteAdapter::class),
+        );
     }
 
     /**
@@ -193,11 +226,15 @@ class MembershipServiceProvider extends ModuleServiceProvider
                     'user_id' => ['type' => 'integer', 'description' => '用户 ID'],
                     'amount' => ['type' => 'integer', 'description' => '调整数量（正数增加，负数扣减）'],
                     'reason' => ['type' => 'string', 'description' => '调整原因'],
+                    'operation_key' => ['type' => 'string', 'description' => '幂等键（可选；同一逻辑操作重试建议复用；1-32 位字母/数字/._:-）'],
                 ],
                 'required' => ['user_id', 'amount', 'reason'],
             ],
             category: 'membership',
             risk: 'L2',
+            dataAction: Tool::DATA_ACTION_WRITE,
+            requiredCapability: 'common.membership.adjust_points',
+            writeAdapter: MembershipAdjustPointsWriteAdapter::ADAPTER_KEY,
         );
     }
 }

@@ -5,6 +5,10 @@ declare(strict_types=1);
 namespace MultiTenantSaas\Modules\Membership;
 
 use Illuminate\Support\Facades\Route;
+use MultiTenantSaas\Authorization\CapabilityDefinition;
+use MultiTenantSaas\Context\ExecutionIdentity;
+use MultiTenantSaas\Contracts\AuthorizationCapabilityRegistryContract;
+use MultiTenantSaas\Contracts\CapabilityRequirementResolverContract;
 use MultiTenantSaas\Contracts\ToolRegistryContract;
 use MultiTenantSaas\Modules\Contracts\ModuleServiceProvider;
 use MultiTenantSaas\Modules\Membership\Services\Tools\AdjustPointsHandler;
@@ -40,7 +44,43 @@ class MembershipServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        $this->registerAuthorizationCapabilities();
         $this->registerTools();
+    }
+
+    /**
+     * P1 工具标注 wave2：Membership 只读能力。
+     *
+     * operator requirement 映射到既有权限名 `membership.view`（会员体系读端点同口径）。
+     * L2 写工具（调整积分）暂不标注（需 writeAdapter，另行迁移）。
+     */
+    private function registerAuthorizationCapabilities(): void
+    {
+        if (! $this->app->bound(AuthorizationCapabilityRegistryContract::class)) {
+            return;
+        }
+
+        $registry = $this->app->make(AuthorizationCapabilityRegistryContract::class);
+        $requirements = $this->app->bound(CapabilityRequirementResolverContract::class)
+            ? $this->app->make(CapabilityRequirementResolverContract::class)
+            : null;
+
+        $capabilities = [
+            'common.membership.levels' => 'membership.view',
+            'common.membership.evaluate' => 'membership.view',
+            'common.membership.points_balance' => 'membership.view',
+        ];
+
+        foreach ($capabilities as $key => $permission) {
+            $registry->register(new CapabilityDefinition(
+                key: $key,
+                subjectTypes: [ExecutionIdentity::TYPE_OPERATOR],
+                targetScope: CapabilityDefinition::TARGET_TENANT,
+                admissionPolicy: [ExecutionIdentity::TYPE_OPERATOR => ['member']],
+            ));
+
+            $requirements?->register($key, ExecutionIdentity::TYPE_OPERATOR, ['permission' => $permission]);
+        }
     }
 
     /**
@@ -105,6 +145,7 @@ class MembershipServiceProvider extends ModuleServiceProvider
             schema: ['type' => 'object', 'properties' => []],
             category: 'membership',
             risk: 'L1',
+            requiredCapability: 'common.membership.levels',
         );
 
         $registry->register(
@@ -121,6 +162,7 @@ class MembershipServiceProvider extends ModuleServiceProvider
             ],
             category: 'membership',
             risk: 'L1',
+            requiredCapability: 'common.membership.evaluate',
         );
 
         $registry->register(
@@ -137,6 +179,7 @@ class MembershipServiceProvider extends ModuleServiceProvider
             ],
             category: 'membership',
             risk: 'L1',
+            requiredCapability: 'common.membership.points_balance',
         );
 
         $registry->register(

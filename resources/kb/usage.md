@@ -38,7 +38,7 @@
 ## 权限点（Console 运营面）
 
 运营面路由挂 `rbac.permission`：只读 → `membership.view`；写/变更 → `membership.manage`
-（权限定义与授权见 `Database/migrations/2026_10_07_200300_add_membership_console_permissions.php`）。
+（权限定义与授权见 `Database/migrations/2025_01_04_000014_membership_module_data.php` 的 `2026_10_07_200300_add_membership_console_permissions` 步骤）。
 
 ## 配置插口
 

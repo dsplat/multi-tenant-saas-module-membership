@@ -30,7 +30,7 @@ class MembershipService
 
     public function create($tenantId, array $data): MembershipLevel
     {
-        TenantContext::setTenantId((string) $tenantId);
+        TenantContext::assertTenantId($tenantId);
 
         return MembershipLevel::create([
             'membership_level_id' => $this->idGenerator->generate(),
@@ -47,7 +47,7 @@ class MembershipService
 
     public function getLevels($tenantId): Collection
     {
-        TenantContext::setTenantId((string) $tenantId);
+        TenantContext::assertTenantId($tenantId);
 
         return MembershipLevel::where('tenant_id', $tenantId)
             ->orderBy('sort_order')
@@ -57,7 +57,7 @@ class MembershipService
 
     public function getLevel($tenantId, $levelId): MembershipLevel
     {
-        TenantContext::setTenantId((string) $tenantId);
+        TenantContext::assertTenantId($tenantId);
 
         return MembershipLevel::where('membership_level_id', $levelId)
             ->where('tenant_id', $tenantId)
@@ -66,7 +66,7 @@ class MembershipService
 
     public function update($tenantId, $levelId, array $data): MembershipLevel
     {
-        TenantContext::setTenantId((string) $tenantId);
+        TenantContext::assertTenantId($tenantId);
 
         $level = MembershipLevel::where('membership_level_id', $levelId)
             ->where('tenant_id', $tenantId)
@@ -80,7 +80,7 @@ class MembershipService
 
     public function delete($tenantId, $levelId): bool
     {
-        TenantContext::setTenantId((string) $tenantId);
+        TenantContext::assertTenantId($tenantId);
 
         $level = MembershipLevel::where('membership_level_id', $levelId)
             ->where('tenant_id', $tenantId)
@@ -96,7 +96,7 @@ class MembershipService
      */
     public function evaluateUpgrade($tenantId, $userId): ?MembershipLevel
     {
-        TenantContext::setTenantId((string) $tenantId);
+        TenantContext::assertTenantId($tenantId);
 
         $levels = MembershipLevel::where('tenant_id', $tenantId)
             ->where('status', 'active')
@@ -126,7 +126,7 @@ class MembershipService
      */
     public function changeLevel($tenantId, $userId, $toLevelId, string $changeType = 'upgrade', ?string $reason = null): array
     {
-        TenantContext::setTenantId((string) $tenantId);
+        TenantContext::assertTenantId($tenantId);
 
         $toLevel = MembershipLevel::where('membership_level_id', $toLevelId)
             ->where('tenant_id', $tenantId)
@@ -170,7 +170,7 @@ class MembershipService
 
     public function updateBenefits($tenantId, $levelId, array $benefits): MembershipLevel
     {
-        TenantContext::setTenantId((string) $tenantId);
+        TenantContext::assertTenantId($tenantId);
 
         $level = MembershipLevel::where('membership_level_id', $levelId)
             ->where('tenant_id', $tenantId)
@@ -182,7 +182,7 @@ class MembershipService
 
     public function getBenefits($tenantId, $levelId): array
     {
-        TenantContext::setTenantId((string) $tenantId);
+        TenantContext::assertTenantId($tenantId);
 
         $level = MembershipLevel::where('membership_level_id', $levelId)
             ->where('tenant_id', $tenantId)
@@ -199,7 +199,7 @@ class MembershipService
 
     public function getChangeLogs($tenantId, $userId): array
     {
-        TenantContext::setTenantId((string) $tenantId);
+        TenantContext::assertTenantId($tenantId);
 
         $logs = DB::table('membership_logs')
             ->where('tenant_id', $tenantId)
@@ -244,7 +244,7 @@ class MembershipService
 
     public function getDistribution($tenantId): array
     {
-        TenantContext::setTenantId((string) $tenantId);
+        TenantContext::assertTenantId($tenantId);
 
         $levels = MembershipLevel::where('tenant_id', $tenantId)
             ->orderBy('sort_order')

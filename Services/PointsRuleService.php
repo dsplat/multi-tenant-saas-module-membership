@@ -32,7 +32,7 @@ class PointsRuleService
 
     public function createRule($tenantId, array $data): PointsRule
     {
-        TenantContext::setTenantId((string) $tenantId);
+        TenantContext::assertTenantId($tenantId);
 
         return PointsRule::create([
             'points_rule_id' => $this->idGenerator->generate(),
@@ -49,7 +49,7 @@ class PointsRuleService
 
     public function getRules($tenantId, $perPage = 20): array
     {
-        TenantContext::setTenantId((string) $tenantId);
+        TenantContext::assertTenantId($tenantId);
 
         $paginator = PointsRule::where('tenant_id', $tenantId)
             ->orderByDesc('created_at')
@@ -67,7 +67,7 @@ class PointsRuleService
 
     public function updateRule($tenantId, $ruleId, array $data): PointsRule
     {
-        TenantContext::setTenantId((string) $tenantId);
+        TenantContext::assertTenantId($tenantId);
 
         $rule = PointsRule::where('points_rule_id', $ruleId)
             ->where('tenant_id', $tenantId)
@@ -85,7 +85,7 @@ class PointsRuleService
 
     public function toggleRule($tenantId, $ruleId): PointsRule
     {
-        TenantContext::setTenantId((string) $tenantId);
+        TenantContext::assertTenantId($tenantId);
 
         $rule = PointsRule::where('points_rule_id', $ruleId)
             ->where('tenant_id', $tenantId)
@@ -99,7 +99,7 @@ class PointsRuleService
 
     public function getPointsLogs($tenantId, ?string $userId = null, ?string $type = null, $perPage = 20): array
     {
-        TenantContext::setTenantId((string) $tenantId);
+        TenantContext::assertTenantId($tenantId);
 
         $query = DB::table('points_transactions')
             ->where('tenant_id', $tenantId);
@@ -265,7 +265,7 @@ class PointsRuleService
 
     public function expirePoints($tenantId): int
     {
-        TenantContext::setTenantId((string) $tenantId);
+        TenantContext::assertTenantId($tenantId);
 
         $expiredTxs = DB::table('points_transactions')
             ->where('tenant_id', $tenantId)
@@ -326,7 +326,7 @@ class PointsRuleService
 
     private function validateUser($tenantId, $userId): void
     {
-        TenantContext::setTenantId((string) $tenantId);
+        TenantContext::assertTenantId($tenantId);
 
         $exists = DB::table('users')
             ->where('user_id', $userId)

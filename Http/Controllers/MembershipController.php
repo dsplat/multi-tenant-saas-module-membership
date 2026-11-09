@@ -8,18 +8,22 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use MultiTenantSaas\Context\TenantContext;
 use MultiTenantSaas\Http\Controllers\BaseController;
+use MultiTenantSaas\Modules\Membership\Services\GrowthAccountService;
+use MultiTenantSaas\Modules\Membership\Services\MemberBenefitService;
 use MultiTenantSaas\Modules\Membership\Services\MembershipService;
 
 /**
  * 会员等级控制器（Console 运营面）
  *
- * 等级 CRUD / 权益 / 升级评估 / 等级变更 / 分布统计。
+ * 等级 CRUD / 权益 / 升级评估 / 等级变更 / 成长账户 / 分布统计。
  * 用户身份一律走框架 user_id（路由参数 {userId}），不再引用 Customer 实体。
  */
 class MembershipController extends BaseController
 {
     public function __construct(
         protected MembershipService $membershipService,
+        protected GrowthAccountService $growthService,
+        protected MemberBenefitService $benefitService,
     ) {}
 
     /**
@@ -172,6 +176,65 @@ class MembershipController extends BaseController
         $logs = $this->membershipService->getChangeLogs($tenantId, $userId);
 
         return response()->json(['success' => true, 'data' => $logs]);
+    }
+
+    /**
+     * 用户会员档案（等级 + 成长值 + 权益）。
+     */
+    public function profile($userId): JsonResponse
+    {
+        $tenantId = (int) TenantContext::getId();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                ...$this->membershipService->getMemberProfile($tenantId, (int) $userId),
+                'benefits' => $this->benefitService->getBenefits($tenantId, (int) $userId),
+            ],
+        ]);
+    }
+
+    /**
+     * 用户成长流水。
+     */
+    public function growth(Request $request, $userId): JsonResponse
+    {
+        $validated = $request->validate([
+            'per_page' => 'nullable|integer|min:1|max:100',
+        ]);
+
+        $tenantId = (int) TenantContext::getId();
+        $account = $this->growthService->getAccount($tenantId, (int) $userId);
+        $history = $this->growthService->history(
+            $tenantId,
+            (int) $userId,
+            (int) ($validated['per_page'] ?? 20),
+        );
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'user_id' => (int) $userId,
+                'growth_value' => (int) $account->growth_value,
+                'history' => $history,
+            ],
+        ]);
+    }
+
+    /**
+     * 手动重算等级（运营补偿/数据修复入口，只升不降）。
+     */
+    public function reconcile($userId): JsonResponse
+    {
+        $tenantId = (int) TenantContext::getId();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'user_id' => (int) $userId,
+                'change' => $this->membershipService->reconcileLevelWithGrowth($tenantId, (int) $userId),
+            ],
+        ]);
     }
 
     /**

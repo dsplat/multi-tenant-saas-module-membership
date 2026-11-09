@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MultiTenantSaas\Modules\Membership;
 
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
 use MultiTenantSaas\Authorization\CapabilityDefinition;
 use MultiTenantSaas\Context\ExecutionIdentity;
@@ -13,11 +14,21 @@ use MultiTenantSaas\Contracts\ToolRegistryContract;
 use MultiTenantSaas\Contracts\WriteAdapterRegistryContract;
 use MultiTenantSaas\Modules\Ai\Services\Agent\Dto\Tool;
 use MultiTenantSaas\Modules\Contracts\ModuleServiceProvider;
+use MultiTenantSaas\Modules\Course\Events\CourseCompleted;
+use MultiTenantSaas\Modules\Exam\Events\ExamPassed;
+use MultiTenantSaas\Modules\Membership\Commands\ExpireMemberPointsCommand;
+use MultiTenantSaas\Modules\Membership\Commands\ProcessMembershipRetentionCommand;
+use MultiTenantSaas\Modules\Membership\Events\PointsEarned;
+use MultiTenantSaas\Modules\Membership\Listeners\CourseCompletedMembershipListener;
+use MultiTenantSaas\Modules\Membership\Listeners\ExamPassedMembershipListener;
+use MultiTenantSaas\Modules\Membership\Listeners\OrderPaidMembershipListener;
+use MultiTenantSaas\Modules\Membership\Listeners\PointsEarnedMembershipListener;
 use MultiTenantSaas\Modules\Membership\Services\Tools\AdjustPointsHandler;
 use MultiTenantSaas\Modules\Membership\Services\Tools\EvaluateMembershipHandler;
 use MultiTenantSaas\Modules\Membership\Services\Tools\GetPointsBalanceHandler;
 use MultiTenantSaas\Modules\Membership\Services\Tools\ListMembershipLevelsHandler;
 use MultiTenantSaas\Modules\Membership\Services\Write\MembershipAdjustPointsWriteAdapter;
+use MultiTenantSaas\Modules\Order\Events\OrderPaid;
 use MultiTenantSaas\Support\OptionalModule;
 
 /**
@@ -47,9 +58,42 @@ class MembershipServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        $this->registerListeners();
         $this->registerAuthorizationCapabilities();
         $this->registerWriteAdapters();
         $this->registerTools();
+    }
+
+    protected function registerModuleCommands(): void
+    {
+        if ($this->app->runningInConsole()) {
+            $this->commands([
+                ExpireMemberPointsCommand::class,
+                ProcessMembershipRetentionCommand::class,
+            ]);
+        }
+    }
+
+    /**
+     * 成长/成就事件接线。
+     *
+     * Course/Exam/Order 均为可选模块：事件类不存在时静默跳过，dependencies 保持为空。
+     */
+    private function registerListeners(): void
+    {
+        if (class_exists(OrderPaid::class)) {
+            Event::listen(OrderPaid::class, OrderPaidMembershipListener::class);
+        }
+
+        if (class_exists(CourseCompleted::class)) {
+            Event::listen(CourseCompleted::class, CourseCompletedMembershipListener::class);
+        }
+
+        if (class_exists(ExamPassed::class)) {
+            Event::listen(ExamPassed::class, ExamPassedMembershipListener::class);
+        }
+
+        Event::listen(PointsEarned::class, PointsEarnedMembershipListener::class);
     }
 
     /**
@@ -134,22 +178,22 @@ class MembershipServiceProvider extends ModuleServiceProvider
         OptionalModule::ensure(self::MW_VERIFY_OPERATOR_TENANT, '会员模块路由加载', 'Infrastructure');
 
         $moduleDir = $this->getModulePath();
-        $moduleGate = 'module.enabled:' . $this->moduleGateName();
+        $moduleGate = 'module.enabled:'.$this->moduleGateName();
         $prefix = (string) config('membership.route_prefix', 'api/v1');
 
-        $apiRoute = $moduleDir . '/Routes/api.php';
+        $apiRoute = $moduleDir.'/Routes/api.php';
         if (file_exists($apiRoute)) {
             Route::middleware(['api', 'auth:sanctum', 'throttle:api', 'tenant.identify', self::MW_VERIFY_OPERATOR_TENANT, $moduleGate])
                 ->prefix($prefix)
                 ->group($apiRoute);
         }
 
-        $publicRoute = $moduleDir . '/Routes/public.php';
+        $publicRoute = $moduleDir.'/Routes/public.php';
         if (file_exists($publicRoute)) {
             Route::middleware(['api'])->prefix($prefix)->group($publicRoute);
         }
 
-        $optionalRoute = $moduleDir . '/Routes/optional.php';
+        $optionalRoute = $moduleDir.'/Routes/optional.php';
         if (file_exists($optionalRoute)) {
             Route::middleware(['api', 'throttle:api', 'tenant.identify', self::MW_OPTIONAL_SANCTUM_AUTH, $moduleGate])
                 ->prefix($prefix)

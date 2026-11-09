@@ -17,4 +17,19 @@ return [
     */
     'route_prefix' => env('MEMBERSHIP_ROUTE_PREFIX', 'api/v1'),
 
+    /*
+    |--------------------------------------------------------------------------
+    | 成长值规则
+    |--------------------------------------------------------------------------
+    | 成长值只增不减；订单按实付金额（整数分）折算为「元」后乘以 per_yuan。
+    | 这些是租户默认值，后续如需租户级配置应落在 tenant settings，不在此硬编码业务档位。
+    */
+    'growth' => [
+        'order_paid_per_yuan' => (int) env('MEMBERSHIP_GROWTH_ORDER_PER_YUAN', 1),
+        'order_paid_minimum' => (int) env('MEMBERSHIP_GROWTH_ORDER_MINIMUM', 1),
+        'course_completed' => (int) env('MEMBERSHIP_GROWTH_COURSE_COMPLETED', 20),
+        'exam_passed' => (int) env('MEMBERSHIP_GROWTH_EXAM_PASSED', 10),
+        'check_in' => (int) env('MEMBERSHIP_GROWTH_CHECK_IN', 2),
+    ],
+
 ];

@@ -7,8 +7,10 @@ namespace MultiTenantSaas\Modules\Membership\Services;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use MultiTenantSaas\Context\TenantContext;
 use MultiTenantSaas\Contracts\IdGeneratorContract;
+use MultiTenantSaas\Modules\Membership\Models\MemberAccount;
 use MultiTenantSaas\Modules\Membership\Models\MembershipLevel;
 
 /**
@@ -156,6 +158,35 @@ class MembershipService
                 'updated_at' => now()->toDateTimeString(),
             ]);
 
+            // 账户投影与等级日志同事务落库：折扣、成就和 C 端档案读取
+            // current_level_id 时不会看到「日志已升级、账户仍是旧等级」的中间态。
+            if (Schema::hasTable('member_accounts')) {
+                $account = DB::table('member_accounts')
+                    ->where('tenant_id', $tenantId)
+                    ->where('user_id', $userId)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($account) {
+                    DB::table('member_accounts')
+                        ->where('member_account_id', $account->member_account_id)
+                        ->update([
+                            'current_level_id' => $toLevelId,
+                            'updated_at' => now()->toDateTimeString(),
+                        ]);
+                } else {
+                    DB::table('member_accounts')->insert([
+                        'member_account_id' => $this->idGenerator->generate(),
+                        'tenant_id' => $tenantId,
+                        'user_id' => $userId,
+                        'growth_value' => 0,
+                        'current_level_id' => $toLevelId,
+                        'created_at' => now()->toDateTimeString(),
+                        'updated_at' => now()->toDateTimeString(),
+                    ]);
+                }
+            }
+
             return [
                 'log_id' => $logId,
                 'user_id' => $userId,
@@ -290,6 +321,105 @@ class MembershipService
         ];
     }
 
+    // ========== 成长与自动升级 ==========
+
+    /**
+     * 按当前成长值重算等级（只升级，不降级）。
+     *
+     * 事件监听器在成长入账后调用；返回 null 表示未发生等级变化。
+     */
+    public function reconcileLevelWithGrowth($tenantId, $userId): ?array
+    {
+        TenantContext::assertTenantId($tenantId);
+
+        if (! Schema::hasTable('member_accounts')) {
+            return null;
+        }
+
+        $account = MemberAccount::where('tenant_id', $tenantId)
+            ->where('user_id', $userId)
+            ->first();
+
+        if (! $account) {
+            return null;
+        }
+
+        $levels = MembershipLevel::where('tenant_id', $tenantId)
+            ->where('status', 'active')
+            ->orderBy('sort_order')
+            ->orderBy('membership_level_id')
+            ->get();
+
+        if ($levels->isEmpty()) {
+            return null;
+        }
+
+        $stats = $this->getUserStats($tenantId, $userId);
+        $target = null;
+
+        foreach ($levels as $level) {
+            $conditions = $level->upgrade_conditions ?? [];
+
+            if (empty($conditions)) {
+                continue;
+            }
+
+            if ($this->matchConditions($stats, $conditions)) {
+                $target = $level;
+            }
+        }
+
+        if (! $target) {
+            return null;
+        }
+
+        $current = $account->current_level_id
+            ? $levels->firstWhere('membership_level_id', (int) $account->current_level_id)
+            : null;
+        $currentSort = $current ? (int) $current->sort_order : -1;
+
+        if ((int) $target->sort_order <= $currentSort) {
+            return null;
+        }
+
+        return $this->changeLevel(
+            $tenantId,
+            $userId,
+            (int) $target->membership_level_id,
+            'upgrade',
+            '成长值自动升级',
+        );
+    }
+
+    /**
+     * C 端会员档案：账户、当前等级与权益。
+     */
+    public function getMemberProfile($tenantId, $userId): array
+    {
+        TenantContext::assertTenantId($tenantId);
+
+        $account = Schema::hasTable('member_accounts')
+            ? MemberAccount::where('tenant_id', $tenantId)->where('user_id', $userId)->first()
+            : null;
+
+        $level = $account && $account->current_level_id
+            ? MembershipLevel::where('tenant_id', $tenantId)
+                ->where('membership_level_id', $account->current_level_id)
+                ->first()
+            : null;
+
+        return [
+            'user_id' => $userId,
+            'growth_value' => (int) ($account->growth_value ?? 0),
+            'level' => $level ? [
+                'level_id' => (int) $level->membership_level_id,
+                'name' => $level->name,
+                'icon' => $level->icon,
+                'benefits' => $level->benefits ?? [],
+            ] : null,
+        ];
+    }
+
     // ========== 私有方法 ==========
 
     private function getUserStats($tenantId, $userId): array
@@ -299,24 +429,24 @@ class MembershipService
             'total_transactions' => 0,
             'total_points' => 0,
             'days_since_join' => 0,
+            'growth_value' => 0,
         ];
 
-        // 交易统计（表可能不存在；金额口径以整数最小单位为准，本处仅作升级阈值比较）
-        try {
-            $txStats = DB::table('card_transactions')
+        // 交易统计：orders.total_amount 为实付现金（整数分），只计 paid 订单。
+        // 表由可选 Order 模块提供：未安装时明确按 0 处理，不把「表不存在」伪装成真实零消费。
+        if (Schema::hasTable('orders')) {
+            $txStats = DB::table('orders')
                 ->where('tenant_id', $tenantId)
                 ->where('user_id', $userId)
-                ->selectRaw('COUNT(*) as total_transactions, COALESCE(SUM(ABS(amount)), 0) as total_spent')
+                ->where('status', 'paid')
+                ->selectRaw('COUNT(*) as total_transactions, COALESCE(SUM(total_amount), 0) as total_spent')
                 ->first();
 
             $stats['total_spent'] = (int) ($txStats->total_spent ?? 0);
             $stats['total_transactions'] = (int) ($txStats->total_transactions ?? 0);
-        } catch (\Exception $e) {
-            // card_transactions 表不存在时使用默认值
         }
 
-        // 积分统计（表可能不存在）
-        try {
+        if (Schema::hasTable('points_transactions')) {
             $lastTx = DB::table('points_transactions')
                 ->where('tenant_id', $tenantId)
                 ->where('user_id', $userId)
@@ -325,12 +455,16 @@ class MembershipService
                 ->first();
 
             $stats['total_points'] = $lastTx ? (int) $lastTx->balance_after : 0;
-        } catch (\Exception $e) {
-            // points_transactions 表不存在时使用默认值
         }
 
-        // 用户注册天数
-        try {
+        if (Schema::hasTable('member_accounts')) {
+            $stats['growth_value'] = (int) (DB::table('member_accounts')
+                ->where('tenant_id', $tenantId)
+                ->where('user_id', $userId)
+                ->value('growth_value') ?? 0);
+        }
+
+        if (Schema::hasTable('users')) {
             $user = DB::table('users')
                 ->where('user_id', $userId)
                 ->first();
@@ -338,8 +472,6 @@ class MembershipService
             if ($user && $user->created_at) {
                 $stats['days_since_join'] = (int) now()->diffInDays(Carbon::parse($user->created_at));
             }
-        } catch (\Exception $e) {
-            // 忽略
         }
 
         return $stats;

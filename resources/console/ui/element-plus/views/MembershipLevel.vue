@@ -31,6 +31,28 @@
         <el-form-item label="排序" prop="sortOrder">
           <el-input-number v-model="formData.sortOrder" :min="0" :max="999" style="width: 100%" />
         </el-form-item>
+        <el-form-item label="会员折扣">
+          <el-input-number
+            v-model="formData.discountRate"
+            :min="0.01"
+            :max="1"
+            :step="0.05"
+            :precision="2"
+            style="width: 100%"
+          />
+          <span class="form-hint">1 = 原价，0.9 = 九折；订单报价时按整数分落价</span>
+        </el-form-item>
+        <el-form-item label="积分倍率">
+          <el-input-number
+            v-model="formData.pointsMultiplier"
+            :min="1"
+            :max="10"
+            :step="0.1"
+            :precision="1"
+            style="width: 100%"
+          />
+          <span class="form-hint">1 = 不加成，2 = 双倍积分</span>
+        </el-form-item>
         <el-form-item label="升级条件">
           <el-input
             v-model="formData.upgradeConditionsText"
@@ -94,6 +116,9 @@ const editingId = ref<number | null>(null)
 const defaultFormData = {
   name: '',
   sortOrder: 0,
+  discountRate: 1,
+  pointsMultiplier: 1,
+  benefits: {} as Record<string, any>,
   upgradeConditionsText: '',
   retainConditionsText: '',
   status: 1,
@@ -155,6 +180,9 @@ function handleEdit(row: MembershipLevel) {
   editingId.value = row.id
   formData.name = row.name
   formData.sortOrder = row.sortOrder ?? 0
+  formData.benefits = { ...(row.benefits || {}) }
+  formData.discountRate = Number(formData.benefits.discount_rate ?? 1)
+  formData.pointsMultiplier = Number(formData.benefits.points_multiplier ?? 1)
   formData.upgradeConditionsText = row.upgradeConditions
     ? JSON.stringify(row.upgradeConditions)
     : ''
@@ -185,6 +213,11 @@ async function handleSubmit() {
   const payload = {
     name: formData.name,
     sortOrder: formData.sortOrder,
+    benefits: {
+      ...formData.benefits,
+      discount_rate: formData.discountRate,
+      points_multiplier: formData.pointsMultiplier,
+    },
     upgradeConditions,
     retainConditions,
     status: formData.status,
@@ -226,5 +259,12 @@ async function handleDelete(row: MembershipLevel) {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+.form-hint {
+  display: block;
+  margin-top: 6px;
+  color: #909399;
+  font-size: 12px;
+  line-height: 1.4;
 }
 </style>

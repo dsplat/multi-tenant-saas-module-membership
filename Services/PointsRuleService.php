@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use MultiTenantSaas\Context\TenantContext;
 use MultiTenantSaas\Contracts\IdGeneratorContract;
 use MultiTenantSaas\Exceptions\DomainException;
+use MultiTenantSaas\Modules\Membership\Events\PointsEarned;
 use MultiTenantSaas\Modules\Membership\Models\PointsRule;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
@@ -125,15 +126,33 @@ class PointsRuleService
 
     // ========== 积分获取/消耗（事务+锁保护） ==========
 
-    public function earnPoints($tenantId, $userId, $points, $ruleId = null, ?string $description = null): array
-    {
+    /**
+     * 获取积分。
+     *
+     * $multiplierBasisPoints 为空时按当前会员等级权益取倍率；显式传入 10000
+     * 可跳过倍率（成就发奖等内部奖励使用，避免奖励再被会员倍率放大）。
+     */
+    public function earnPoints(
+        $tenantId,
+        $userId,
+        $points,
+        $ruleId = null,
+        ?string $description = null,
+        ?int $multiplierBasisPoints = null,
+        bool $dispatchEvent = true,
+    ): array {
         $this->validateUser($tenantId, $userId);
 
-        if ($points <= 0) {
+        $originalPoints = (int) $points;
+
+        if ($originalPoints <= 0) {
             throw new UnprocessableEntityHttpException('Points must be positive');
         }
 
-        return DB::transaction(function () use ($tenantId, $userId, $points, $ruleId, $description) {
+        $multiplierBasisPoints ??= $this->resolvePointsMultiplierBasisPoints((int) $tenantId, (int) $userId);
+        $points = $this->applyPointsMultiplier($originalPoints, $multiplierBasisPoints);
+
+        $result = DB::transaction(function () use ($tenantId, $userId, $points, $originalPoints, $ruleId, $description, $multiplierBasisPoints) {
             $balance = $this->getBalanceLocked($tenantId, $userId);
             $newBalance = $balance + $points;
 
@@ -152,8 +171,28 @@ class PointsRuleService
                 'updated_at' => now()->toDateTimeString(),
             ]);
 
-            return ['id' => $id, 'type' => 'earn', 'amount' => $points, 'balance_after' => $newBalance];
+            return [
+                'id' => $id,
+                'type' => 'earn',
+                'amount' => $points,
+                'original_amount' => $originalPoints,
+                'multiplier_basis_points' => $multiplierBasisPoints,
+                'balance_after' => $newBalance,
+            ];
         });
+
+        // 积分账本提交后再发观测事件：成就引擎只做进度统计，不反向写账本。
+        if ($dispatchEvent) {
+            event(new PointsEarned(
+                tenantId: (int) $tenantId,
+                userId: (int) $userId,
+                points: $points,
+                balanceAfter: (int) $result['balance_after'],
+                description: $description,
+            ));
+        }
+
+        return $result;
     }
 
     public function consumePoints($tenantId, $userId, $points, ?string $relatedType = null, $relatedId = null, ?string $description = null): array
@@ -324,7 +363,30 @@ class PointsRuleService
 
     // ========== 私有方法 ==========
 
-    private function validateUser($tenantId, $userId): void
+    /**
+     * 会员等级积分倍率（扩展点：下游可覆盖）。
+     */
+    protected function resolvePointsMultiplierBasisPoints(int $tenantId, int $userId): int
+    {
+        try {
+            return app(MemberBenefitService::class)->pointsMultiplierBasisPoints($tenantId, $userId);
+        } catch (\Throwable $e) {
+            // 会员账户/等级未就绪时不影响积分主流程，按 1 倍处理。
+            return MemberBenefitService::BASIS_POINTS;
+        }
+    }
+
+    protected function applyPointsMultiplier(int $points, int $multiplierBasisPoints): int
+    {
+        $effective = intdiv($points * max(10000, $multiplierBasisPoints), MemberBenefitService::BASIS_POINTS);
+
+        return max(1, $effective);
+    }
+
+    /**
+     * 业务主体校验（扩展点：下游可继承收窄，如要求存在客户档案）。
+     */
+    protected function validateUser($tenantId, $userId): void
     {
         TenantContext::assertTenantId($tenantId);
 
@@ -339,9 +401,9 @@ class PointsRuleService
     }
 
     /**
-     * 在事务内获取余额（带行锁防并发）
+     * 在事务内获取余额（带行锁防并发；扩展点：下游继承后在事务内复用）。
      */
-    private function getBalanceLocked($tenantId, $userId): int
+    protected function getBalanceLocked($tenantId, $userId): int
     {
         $lastTx = DB::table('points_transactions')
             ->where('tenant_id', $tenantId)

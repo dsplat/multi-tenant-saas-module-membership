@@ -1,8 +1,9 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-
+use MultiTenantSaas\Modules\Membership\Http\Controllers\AchievementController;
 use MultiTenantSaas\Modules\Membership\Http\Controllers\MemberPointsController;
+use MultiTenantSaas\Modules\Membership\Http\Controllers\MemberProfileController;
 use MultiTenantSaas\Modules\Membership\Http\Controllers\MembershipCardController;
 use MultiTenantSaas\Modules\Membership\Http\Controllers\MembershipController;
 use MultiTenantSaas\Modules\Membership\Http\Controllers\PointsController;
@@ -22,6 +23,9 @@ use MultiTenantSaas\Modules\Membership\Http\Controllers\PointsController;
 Route::prefix('member')->group(function () {
     Route::get('points/balance', [MemberPointsController::class, 'balance']);
     Route::get('points/flow', [MemberPointsController::class, 'flow']);
+    Route::get('profile', [MemberProfileController::class, 'profile']);
+    Route::get('growth', [MemberProfileController::class, 'growth']);
+    Route::get('achievements', [MemberProfileController::class, 'achievements']);
 });
 
 // ---------- B 端（租户运营 Console）----------
@@ -35,6 +39,13 @@ Route::middleware('rbac.permission:membership.view')->group(function () {
     Route::get('membership-levels/{id}', [MembershipController::class, 'show'])->whereNumber('id');
     Route::get('users/{userId}/membership/evaluate', [MembershipController::class, 'evaluateUpgrade']);
     Route::get('users/{userId}/membership/logs', [MembershipController::class, 'changeLogs']);
+    Route::get('users/{userId}/membership/profile', [MembershipController::class, 'profile']);
+    Route::get('users/{userId}/membership/growth', [MembershipController::class, 'growth']);
+
+    // 成就定义 / 发奖记录
+    Route::get('membership/achievements', [AchievementController::class, 'index']);
+    Route::get('membership/achievements/awards', [AchievementController::class, 'awards']);
+    Route::get('membership/achievements/{id}', [AchievementController::class, 'show'])->whereNumber('id');
 
     // 积分规则 / 余额 / 流水 / 日志
     Route::get('points/balance/{userId}', [PointsController::class, 'balance']);
@@ -55,6 +66,12 @@ Route::middleware('rbac.permission:membership.manage')->group(function () {
     Route::put('membership-levels/{id}', [MembershipController::class, 'update']);
     Route::delete('membership-levels/{id}', [MembershipController::class, 'destroy']);
     Route::post('users/{userId}/membership/change', [MembershipController::class, 'changeLevel']);
+    Route::post('users/{userId}/membership/reconcile', [MembershipController::class, 'reconcile']);
+
+    // 成就定义
+    Route::post('membership/achievements', [AchievementController::class, 'store']);
+    Route::put('membership/achievements/{id}', [AchievementController::class, 'update'])->whereNumber('id');
+    Route::delete('membership/achievements/{id}', [AchievementController::class, 'destroy'])->whereNumber('id');
 
     // 积分规则 / 调整 / 过期
     Route::post('points/adjust/{userId}', [PointsController::class, 'adjust']);

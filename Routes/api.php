@@ -67,6 +67,7 @@ Route::middleware('rbac.permission:membership.manage')->group(function () {
     Route::delete('membership-levels/{id}', [MembershipController::class, 'destroy']);
     Route::post('users/{userId}/membership/change', [MembershipController::class, 'changeLevel']);
     Route::post('users/{userId}/membership/reconcile', [MembershipController::class, 'reconcile']);
+    Route::post('users/{userId}/membership/renew', [MembershipController::class, 'renew']);
 
     // 成就定义
     Route::post('membership/achievements', [AchievementController::class, 'store']);

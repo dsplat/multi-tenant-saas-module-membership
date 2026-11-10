@@ -12,6 +12,7 @@ use MultiTenantSaas\Context\TenantContext;
 use MultiTenantSaas\Contracts\IdGeneratorContract;
 use MultiTenantSaas\Modules\Membership\Models\MemberAccount;
 use MultiTenantSaas\Modules\Membership\Models\MembershipLevel;
+use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
 
 /**
  * 会员等级服务（Console）
@@ -40,6 +41,7 @@ class MembershipService
             'name' => $data['name'],
             'icon' => $data['icon'] ?? null,
             'sort_order' => $data['sort_order'] ?? 0,
+            'validity_days' => (int) ($data['validity_days'] ?? 0),
             'upgrade_conditions' => $data['upgrade_conditions'] ?? null,
             'retain_conditions' => $data['retain_conditions'] ?? null,
             'benefits' => $data['benefits'] ?? null,
@@ -74,7 +76,7 @@ class MembershipService
             ->where('tenant_id', $tenantId)
             ->firstOrFail();
 
-        $fillable = ['name', 'icon', 'sort_order', 'upgrade_conditions', 'retain_conditions', 'benefits', 'status'];
+        $fillable = ['name', 'icon', 'sort_order', 'validity_days', 'upgrade_conditions', 'retain_conditions', 'benefits', 'status'];
         $level->update(array_intersect_key($data, array_flip($fillable)));
 
         return $level->fresh();
@@ -134,7 +136,12 @@ class MembershipService
             ->where('tenant_id', $tenantId)
             ->firstOrFail();
 
-        return DB::transaction(function () use ($tenantId, $userId, $toLevelId, $changeType, $reason) {
+        return DB::transaction(function () use ($tenantId, $userId, $toLevel, $toLevelId, $changeType, $reason) {
+            $now = now();
+            $levelExpiresAt = (int) $toLevel->validity_days > 0
+                ? $now->copy()->addDays((int) $toLevel->validity_days)
+                : null;
+
             $currentLog = DB::table('membership_logs')
                 ->where('tenant_id', $tenantId)
                 ->where('user_id', $userId)
@@ -154,8 +161,8 @@ class MembershipService
                 'to_level_id' => $toLevelId,
                 'change_type' => $changeType,
                 'reason' => $reason,
-                'created_at' => now()->toDateTimeString(),
-                'updated_at' => now()->toDateTimeString(),
+                'created_at' => $now->toDateTimeString(),
+                'updated_at' => $now->toDateTimeString(),
             ]);
 
             // 账户投影与等级日志同事务落库：折扣、成就和 C 端档案读取
@@ -172,7 +179,10 @@ class MembershipService
                         ->where('member_account_id', $account->member_account_id)
                         ->update([
                             'current_level_id' => $toLevelId,
-                            'updated_at' => now()->toDateTimeString(),
+                            'level_status' => 'active',
+                            'level_started_at' => $now->toDateTimeString(),
+                            'level_expires_at' => $levelExpiresAt?->toDateTimeString(),
+                            'updated_at' => $now->toDateTimeString(),
                         ]);
                 } else {
                     DB::table('member_accounts')->insert([
@@ -181,8 +191,11 @@ class MembershipService
                         'user_id' => $userId,
                         'growth_value' => 0,
                         'current_level_id' => $toLevelId,
-                        'created_at' => now()->toDateTimeString(),
-                        'updated_at' => now()->toDateTimeString(),
+                        'level_status' => 'active',
+                        'level_started_at' => $now->toDateTimeString(),
+                        'level_expires_at' => $levelExpiresAt?->toDateTimeString(),
+                        'created_at' => $now->toDateTimeString(),
+                        'updated_at' => $now->toDateTimeString(),
                     ]);
                 }
             }
@@ -282,15 +295,30 @@ class MembershipService
             ->orderBy('membership_level_id')
             ->get();
 
-        // 取每个用户的最新等级日志
-        $latestLogs = DB::table('membership_logs as cml1')
-            ->where('cml1.tenant_id', $tenantId)
-            ->whereNotNull('cml1.to_level_id')
-            ->whereRaw('cml1.created_at = (SELECT MAX(cml2.created_at) FROM membership_logs cml2 WHERE cml2.tenant_id = cml1.tenant_id AND cml2.user_id = cml1.user_id)')
-            ->selectRaw('cml1.to_level_id, COUNT(DISTINCT cml1.user_id) as member_count')
-            ->groupBy('cml1.to_level_id')
-            ->get()
-            ->keyBy('to_level_id');
+        // 分布按账户当前有效等级统计；已过期账户不计入会员。
+        if (Schema::hasTable('member_accounts') && Schema::hasColumn('member_accounts', 'level_status')) {
+            $latestLogs = DB::table('member_accounts')
+                ->where('tenant_id', $tenantId)
+                ->where('level_status', 'active')
+                ->whereNotNull('current_level_id')
+                ->where(function ($query): void {
+                    $query->whereNull('level_expires_at')
+                        ->orWhere('level_expires_at', '>', now()->toDateTimeString());
+                })
+                ->selectRaw('current_level_id as to_level_id, COUNT(DISTINCT user_id) as member_count')
+                ->groupBy('current_level_id')
+                ->get()
+                ->keyBy('to_level_id');
+        } else {
+            $latestLogs = DB::table('membership_logs as cml1')
+                ->where('cml1.tenant_id', $tenantId)
+                ->whereNotNull('cml1.to_level_id')
+                ->whereRaw('cml1.created_at = (SELECT MAX(cml2.created_at) FROM membership_logs cml2 WHERE cml2.tenant_id = cml1.tenant_id AND cml2.user_id = cml1.user_id)')
+                ->selectRaw('cml1.to_level_id, COUNT(DISTINCT cml1.user_id) as member_count')
+                ->groupBy('cml1.to_level_id')
+                ->get()
+                ->keyBy('to_level_id');
+        }
 
         $totalMembers = 0;
         $levelStats = [];
@@ -344,6 +372,14 @@ class MembershipService
             return null;
         }
 
+        // 已过期（含已到时间但定时任务尚未处理）停止自动升级；续期后才恢复。
+        if ($account->level_status === 'expired'
+            || ($account->level_status === 'active'
+                && $account->level_expires_at
+                && ! $account->level_expires_at->isFuture())) {
+            return null;
+        }
+
         $levels = MembershipLevel::where('tenant_id', $tenantId)
             ->where('status', 'active')
             ->orderBy('sort_order')
@@ -392,7 +428,7 @@ class MembershipService
     }
 
     /**
-     * C 端会员档案：账户、当前等级与权益。
+     * C 端会员档案：账户、当前等级、有效期与权益。
      */
     public function getMemberProfile($tenantId, $userId): array
     {
@@ -408,16 +444,203 @@ class MembershipService
                 ->first()
             : null;
 
+        $isExpired = $account && (
+            $account->level_status === 'expired'
+            || ($account->level_status === 'active'
+                && $account->level_expires_at
+                && ! $account->level_expires_at->isFuture())
+        );
+
         return [
             'user_id' => $userId,
             'growth_value' => (int) ($account->growth_value ?? 0),
-            'level' => $level ? [
+            'level_status' => $isExpired ? 'expired' : ($level ? 'active' : 'none'),
+            'level_started_at' => $account?->level_started_at,
+            'level_expires_at' => $account?->level_expires_at,
+            'validity_days' => $level ? (int) $level->validity_days : 0,
+            'level' => $level && ! $isExpired ? [
                 'level_id' => (int) $level->membership_level_id,
                 'name' => $level->name,
                 'icon' => $level->icon,
                 'benefits' => $level->benefits ?? [],
             ] : null,
+            'expired_level' => $isExpired && $level ? [
+                'level_id' => (int) $level->membership_level_id,
+                'name' => $level->name,
+            ] : null,
         ];
+    }
+
+    /**
+     * 逐租户会员生命周期：到期续期/过期、以及成长升级。
+     *
+     * @return array{renewed: int, expired: int, upgraded: int}
+     */
+    public function processMembershipLifecycle($tenantId): array
+    {
+        TenantContext::assertTenantId($tenantId);
+
+        $summary = ['renewed' => 0, 'expired' => 0, 'upgraded' => 0];
+
+        if (! Schema::hasTable('member_accounts')
+            || ! Schema::hasColumn('member_accounts', 'level_status')) {
+            return $summary;
+        }
+
+        $accounts = MemberAccount::where('tenant_id', $tenantId)
+            ->whereIn('level_status', ['none', 'active'])
+            ->orderBy('member_account_id')
+            ->get();
+
+        foreach ($accounts as $account) {
+            $userId = (int) $account->user_id;
+
+            if ($account->level_status === 'active'
+                && $account->level_expires_at
+                && ! $account->level_expires_at->isFuture()) {
+                $level = $account->current_level_id
+                    ? MembershipLevel::where('tenant_id', $tenantId)
+                        ->where('membership_level_id', $account->current_level_id)
+                        ->first()
+                    : null;
+
+                if ($level && $this->canRetain($tenantId, $userId, $level)) {
+                    $this->renewMembership($tenantId, $userId, null, null, '保级条件自动续期');
+                    $summary['renewed']++;
+                } else {
+                    $this->expireMembership($tenantId, $userId, '会员到期且未满足保级条件');
+                    $summary['expired']++;
+
+                    continue;
+                }
+            }
+
+            if ($this->reconcileLevelWithGrowth($tenantId, $userId) !== null) {
+                $summary['upgraded']++;
+            }
+        }
+
+        return $summary;
+    }
+
+    /**
+     * 运营续期：重开当前等级的新有效周期。
+     */
+    public function renewMembership(
+        $tenantId,
+        $userId,
+        ?int $days = null,
+        ?int $levelId = null,
+        string $reason = '运营续期',
+    ): array {
+        TenantContext::assertTenantId($tenantId);
+
+        return DB::transaction(function () use ($tenantId, $userId, $days, $levelId, $reason) {
+            $account = MemberAccount::where('tenant_id', $tenantId)
+                ->where('user_id', $userId)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $account) {
+                throw new UnprocessableEntityHttpException('Member account not found');
+            }
+
+            $targetLevelId = $levelId ?? (int) $account->current_level_id;
+
+            if ($targetLevelId <= 0) {
+                throw new UnprocessableEntityHttpException('Member has no level to renew');
+            }
+
+            $level = MembershipLevel::where('tenant_id', $tenantId)
+                ->where('membership_level_id', $targetLevelId)
+                ->firstOrFail();
+
+            $renewDays = $days ?? (int) $level->validity_days;
+
+            if ($renewDays <= 0) {
+                throw new UnprocessableEntityHttpException('Membership validity must be positive');
+            }
+
+            $now = now();
+            $expiresAt = $now->copy()->addDays($renewDays);
+
+            $account->update([
+                'current_level_id' => $targetLevelId,
+                'level_status' => 'active',
+                'level_started_at' => $now,
+                'level_expires_at' => $expiresAt,
+            ]);
+
+            $logId = $this->idGenerator->generate();
+            DB::table('membership_logs')->insert([
+                'membership_log_id' => $logId,
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'from_level_id' => $targetLevelId,
+                'to_level_id' => $targetLevelId,
+                'change_type' => 'retain',
+                'reason' => $reason,
+                'created_at' => $now->toDateTimeString(),
+                'updated_at' => $now->toDateTimeString(),
+            ]);
+
+            return [
+                'log_id' => $logId,
+                'user_id' => $userId,
+                'level_id' => $targetLevelId,
+                'level_started_at' => $now->toDateTimeString(),
+                'level_expires_at' => $expiresAt->toDateTimeString(),
+            ];
+        });
+    }
+
+    /**
+     * 会员到期：降为普通会员（保留 current_level_id 供续期/审计），并停止自动升级。
+     */
+    public function expireMembership($tenantId, $userId, string $reason = '会员到期'): bool
+    {
+        TenantContext::assertTenantId($tenantId);
+
+        return DB::transaction(function () use ($tenantId, $userId, $reason) {
+            $account = MemberAccount::where('tenant_id', $tenantId)
+                ->where('user_id', $userId)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $account || $account->level_status !== 'active') {
+                return false;
+            }
+
+            $fromLevelId = (int) $account->current_level_id;
+
+            $account->update(['level_status' => 'expired']);
+
+            $logId = $this->idGenerator->generate();
+            DB::table('membership_logs')->insert([
+                'membership_log_id' => $logId,
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'from_level_id' => $fromLevelId ?: null,
+                'to_level_id' => null,
+                'change_type' => 'downgrade',
+                'reason' => $reason,
+                'created_at' => now()->toDateTimeString(),
+                'updated_at' => now()->toDateTimeString(),
+            ]);
+
+            return true;
+        });
+    }
+
+    private function canRetain($tenantId, $userId, MembershipLevel $level): bool
+    {
+        $conditions = $level->retain_conditions ?? [];
+
+        if (empty($conditions)) {
+            return false;
+        }
+
+        return $this->matchConditions($this->getUserStats($tenantId, $userId), $conditions);
     }
 
     // ========== 私有方法 ==========

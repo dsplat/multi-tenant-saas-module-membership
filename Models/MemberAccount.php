@@ -22,7 +22,8 @@ class MemberAccount extends Model
     protected $primaryKey = 'member_account_id';
 
     protected $fillable = [
-        'tenant_id', 'user_id', 'growth_value', 'current_level_id', 'last_signal_at',
+        'tenant_id', 'user_id', 'growth_value', 'current_level_id',
+        'level_status', 'level_started_at', 'level_expires_at', 'last_signal_at',
     ];
 
     protected function casts(): array
@@ -30,6 +31,8 @@ class MemberAccount extends Model
         return [
             'growth_value' => 'integer',
             'current_level_id' => 'integer',
+            'level_started_at' => 'datetime',
+            'level_expires_at' => 'datetime',
             'last_signal_at' => 'datetime',
         ];
     }

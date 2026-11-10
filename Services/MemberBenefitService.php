@@ -49,6 +49,13 @@ class MemberBenefitService
             return $empty;
         }
 
+        if ($account->level_status === 'expired'
+            || ($account->level_status === 'active'
+                && $account->level_expires_at
+                && ! $account->level_expires_at->isFuture())) {
+            return $empty;
+        }
+
         $level = MembershipLevel::where('tenant_id', $tenantId)
             ->where('membership_level_id', $account->current_level_id)
             ->first();

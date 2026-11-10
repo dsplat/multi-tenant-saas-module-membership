@@ -46,6 +46,7 @@ class MembershipController extends BaseController
             'name' => 'required|string|max:255',
             'icon' => 'nullable|string|max:500',
             'sort_order' => 'integer|min:0',
+            'validity_days' => 'nullable|integer|min:0|max:3650',
             'upgrade_conditions' => 'nullable|array',
             'retain_conditions' => 'nullable|array',
             'benefits' => 'nullable|array',
@@ -77,6 +78,7 @@ class MembershipController extends BaseController
             'name' => 'string|max:255',
             'icon' => 'nullable|string|max:500',
             'sort_order' => 'integer|min:0',
+            'validity_days' => 'nullable|integer|min:0|max:3650',
             'upgrade_conditions' => 'nullable|array',
             'retain_conditions' => 'nullable|array',
             'benefits' => 'nullable|array',
@@ -235,6 +237,29 @@ class MembershipController extends BaseController
                 'change' => $this->membershipService->reconcileLevelWithGrowth($tenantId, (int) $userId),
             ],
         ]);
+    }
+
+    /**
+     * 手动续期（运营）。
+     */
+    public function renew(Request $request, $userId): JsonResponse
+    {
+        $validated = $request->validate([
+            'days' => 'nullable|integer|min:1|max:3650',
+            'level_id' => 'nullable|integer|min:1',
+            'reason' => 'nullable|string|max:500',
+        ]);
+
+        $tenantId = (int) TenantContext::getId();
+        $result = $this->membershipService->renewMembership(
+            $tenantId,
+            (int) $userId,
+            isset($validated['days']) ? (int) $validated['days'] : null,
+            isset($validated['level_id']) ? (int) $validated['level_id'] : null,
+            $validated['reason'] ?? '运营续期',
+        );
+
+        return response()->json(['success' => true, 'data' => $result]);
     }
 
     /**

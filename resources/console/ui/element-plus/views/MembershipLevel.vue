@@ -31,6 +31,16 @@
         <el-form-item label="排序" prop="sortOrder">
           <el-input-number v-model="formData.sortOrder" :min="0" :max="999" style="width: 100%" />
         </el-form-item>
+        <el-form-item label="有效期（天）">
+          <el-input-number
+            v-model="formData.validityDays"
+            :min="0"
+            :max="3650"
+            :step="30"
+            style="width: 100%"
+          />
+          <span class="form-hint">0 = 永久有效；到期未满足保级条件将降为普通会员</span>
+        </el-form-item>
         <el-form-item label="会员折扣">
           <el-input-number
             v-model="formData.discountRate"
@@ -116,6 +126,7 @@ const editingId = ref<number | null>(null)
 const defaultFormData = {
   name: '',
   sortOrder: 0,
+  validityDays: 0,
   discountRate: 1,
   pointsMultiplier: 1,
   benefits: {} as Record<string, any>,
@@ -180,6 +191,7 @@ function handleEdit(row: MembershipLevel) {
   editingId.value = row.id
   formData.name = row.name
   formData.sortOrder = row.sortOrder ?? 0
+  formData.validityDays = row.validityDays ?? 0
   formData.benefits = { ...(row.benefits || {}) }
   formData.discountRate = Number(formData.benefits.discount_rate ?? 1)
   formData.pointsMultiplier = Number(formData.benefits.points_multiplier ?? 1)
@@ -213,6 +225,7 @@ async function handleSubmit() {
   const payload = {
     name: formData.name,
     sortOrder: formData.sortOrder,
+    validityDays: formData.validityDays,
     benefits: {
       ...formData.benefits,
       discount_rate: formData.discountRate,

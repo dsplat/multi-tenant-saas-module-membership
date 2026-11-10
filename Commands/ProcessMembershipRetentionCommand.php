@@ -7,20 +7,19 @@ namespace MultiTenantSaas\Modules\Membership\Commands;
 use Illuminate\Console\Command;
 use MultiTenantSaas\Context\TenantContext;
 use MultiTenantSaas\Modules\Infrastructure\Models\Tenant;
-use MultiTenantSaas\Modules\Membership\Models\MemberAccount;
 use MultiTenantSaas\Modules\Membership\Services\MembershipService;
 
 /**
- * 跨租户会员保级/等级重算。
+ * 跨租户会员生命周期：到期续期/过期 + 成长升级。
  *
- * 当前策略只升级不降级：本命令重放成长值→等级判定，并为运营保留
- * 后续接入降级策略的单一入口。没有成长账户的用户不会被补造。
+ * 有有效期的等级到期前按保级条件自动续期；未满足则降为普通会员并停止自动升级。
+ * 无成长账户的用户不会被补造。
  */
 class ProcessMembershipRetentionCommand extends Command
 {
     protected $signature = 'membership:process-retention';
 
-    protected $description = '重算会员等级与保级状态（逐租户执行，只升不降）';
+    protected $description = '会员到期续期/降级与等级重算（逐租户执行）';
 
     public function handle(MembershipService $membershipService): int
     {
@@ -28,29 +27,24 @@ class ProcessMembershipRetentionCommand extends Command
             ->orderBy('tenant_id')
             ->get();
 
-        $changed = 0;
+        $renewed = 0;
+        $expired = 0;
+        $upgraded = 0;
 
         foreach ($tenants as $tenant) {
             $tenantId = (int) $tenant->tenant_id;
 
-            $changed += TenantContext::runInTenant((string) $tenantId, function () use ($membershipService, $tenantId): int {
-                $accounts = MemberAccount::where('tenant_id', $tenantId)
-                    ->orderBy('member_account_id')
-                    ->cursor();
+            $summary = TenantContext::runInTenant(
+                (string) $tenantId,
+                fn (): array => $membershipService->processMembershipLifecycle($tenantId),
+            );
 
-                $count = 0;
-
-                foreach ($accounts as $account) {
-                    if ($membershipService->reconcileLevelWithGrowth($tenantId, (int) $account->user_id) !== null) {
-                        $count++;
-                    }
-                }
-
-                return $count;
-            });
+            $renewed += $summary['renewed'];
+            $expired += $summary['expired'];
+            $upgraded += $summary['upgraded'];
         }
 
-        $this->info("level changes: {$changed}");
+        $this->info("renewed: {$renewed}, expired: {$expired}, upgraded: {$upgraded}");
 
         return self::SUCCESS;
     }

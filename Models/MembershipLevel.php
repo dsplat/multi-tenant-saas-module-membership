@@ -24,7 +24,7 @@ class MembershipLevel extends Model
     protected $primaryKey = 'membership_level_id';
 
     protected $fillable = [
-        'tenant_id', 'name', 'icon', 'sort_order',
+        'tenant_id', 'name', 'icon', 'sort_order', 'validity_days',
         'upgrade_conditions', 'retain_conditions', 'benefits', 'status',
     ];
 
@@ -35,6 +35,7 @@ class MembershipLevel extends Model
             'retain_conditions' => 'array',
             'benefits' => 'array',
             'sort_order' => 'integer',
+            'validity_days' => 'integer',
         ];
     }
 }

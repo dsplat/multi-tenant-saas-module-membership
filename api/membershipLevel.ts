@@ -6,6 +6,7 @@ interface RawMembershipLevel {
   name: string
   icon: string | null
   sort_order: number
+  validity_days: number
   upgrade_conditions: Record<string, any> | null
   retain_conditions: Record<string, any> | null
   benefits: Record<string, any> | null
@@ -19,6 +20,7 @@ export interface MembershipLevel {
   name: string
   icon: string
   sortOrder: number
+  validityDays: number
   upgradeConditions: Record<string, any>
   retainConditions: Record<string, any>
   benefits: Record<string, any>
@@ -33,6 +35,7 @@ function normalizeMembershipLevel(raw: RawMembershipLevel): MembershipLevel {
     name: raw.name,
     icon: raw.icon ?? '',
     sortOrder: raw.sort_order ?? 0,
+    validityDays: raw.validity_days ?? 0,
     upgradeConditions: raw.upgrade_conditions ?? {},
     retainConditions: raw.retain_conditions ?? {},
     benefits: raw.benefits ?? {},
@@ -48,6 +51,7 @@ function toBackendPayload(data: Partial<MembershipLevel>): Record<string, unknow
   if (data.name !== undefined) payload.name = data.name
   if (data.icon !== undefined) payload.icon = data.icon
   if (data.sortOrder !== undefined) payload.sort_order = data.sortOrder
+  if (data.validityDays !== undefined) payload.validity_days = data.validityDays
   if (data.upgradeConditions !== undefined) payload.upgrade_conditions = data.upgradeConditions
   if (data.retainConditions !== undefined) payload.retain_conditions = data.retainConditions
   if (data.benefits !== undefined) payload.benefits = data.benefits

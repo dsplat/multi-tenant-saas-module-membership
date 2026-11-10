@@ -23,9 +23,15 @@
 ## 能力面
 
 - **等级**：`membership-levels` CRUD / 权益（`benefits`）/ 分布统计 / 升级评估 / 等级变更 + 变更日志。
+  - `validity_days`：0=永久，>0=一个有效周期；升级时从当前时间起算。
+  - 到期按 `retain_conditions` 自动续期；未满足则降为普通会员并停止自动升级，运营可调
+    `POST users/{userId}/membership/renew` 续期。
 - **积分**：`points-rules` CRUD / 启停；余额、流水、手动调整、过期处理。
 - **会员卡**：`membership-cards` CRUD / 封面上传。
-- **C 端（self-scoped）**：`member/points/balance`、`member/points/flow`（仅当前登录 User 自身积分）。
+- **成长/成就**：`membership/achievements` 定义 CRUD、发奖记录；`member/profile`、
+  `member/growth`、`member/achievements` 为当前登录用户自助查询。
+- **C 端（self-scoped）**：`member/points/balance`、`member/points/flow`、`member/profile`、
+  `member/growth`、`member/achievements`（仅当前登录 User 自身数据）。
 - **AI 工具**：`list_membership_levels` / `evaluate_membership` / `get_points_balance` / `adjust_points`。
 
 ## 皮肤点与接线契约
